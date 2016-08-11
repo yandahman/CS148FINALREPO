@@ -21,9 +21,9 @@ void main()
     vec4 posVec = vec4(position,1.0f);
     gl_Position = projection*view*model*posVec;
     Normal = normal;//pass normal out
-    FragPos = vec3(model*posVec); //determine fragment position
+    
+    //determine fragment position by transforming position to world coords
+    FragPos = vec3(model*posVec); 
     Position = position;
     TextCoor = textCoor;
-                                                //by transforming position to
-						//world coords
 } 
