@@ -44,7 +44,8 @@ GLfloat lastY  =  HEIGHT / 2.0;
 bool    keys[1024];
 
 // Light attributes
-glm::vec3 lightPos(100.0f, 150.0f, 100.0f);
+glm::vec3 lightPos(-10.0f, 20.0f, -10.0f); //100,150,100
+glm::vec3 origLightPos(-10.0f, 20.0f, -10.0f);
 
 // Deltatime
 GLfloat deltaTime = 0.0f;	// Time between current frame and last frame
@@ -142,6 +143,7 @@ int main()
     // Build and compile our shader program
     Shader lightingShader("phong.vs", "phong.frag");
     Shader skyboxShader("skybox.vs", "skybox.frag");
+    Shader simpleDepthShader("shadowShader.vs","shadowShader.frag");
 
     /*
     added in the texture coordinates but they're just either randomly a 1 or a 0 right now
@@ -150,7 +152,6 @@ int main()
     we should create textures[xScale][zScale][2] that holds all the texture Coordinate info
     that way we can iterate over it easily here
 
-    im pretty sure we can make 
     */
    
     int verticesSize = xScale*zScale*8;
@@ -168,9 +169,9 @@ int main()
                 vertices[index] = normals[i][j][k];
                 index++;
             }
-            vertices[index] = i%2;
+            vertices[index] = (float)(i%50)/49.0;
             index++;
-            vertices[index] = j%2;
+            vertices[index] = (float)(j%50)/49.0;
             index++;
         }
     }
@@ -253,7 +254,7 @@ int main()
 
     */
     //grass
-    GLuint grasstexture = LoadTexture("grass.bmp");
+    GLuint grasstexture = LoadTexture("newGrass.jpg");
 
     //sand
     GLuint sandtexture = LoadTexture("sandRipples.jpg");
@@ -326,7 +327,6 @@ int main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (GLvoid*)0);
     glBindVertexArray(0);
 
-
     vector<const GLchar*> faces;
     faces.push_back("right.jpg");
     faces.push_back("left.jpg");
@@ -337,9 +337,28 @@ int main()
     GLuint cubemapTexture = loadCubemap(faces);
 
 
-
-    cout << testMaxHeight <<endl;
-    cout << testMinHeight <<endl;
+    //ADDING SHADOW STUFF HERE
+    // Configure depth map FBO
+    const GLuint SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
+    GLuint depthMapFBO;
+    glGenFramebuffers(1, &depthMapFBO);
+    // - Create depth texture
+    GLuint depthMap;
+    glGenTextures(1, &depthMap);
+    glBindTexture(GL_TEXTURE_2D, depthMap);
+    
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    //END OF SHADOW SETUP STUFF
 
     // Game loop
     while (!glfwWindowShouldClose(window))
@@ -358,9 +377,49 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
+        //SHADOW STUFF STARTS HERE
 
-        //each GL_TEXTURE# corresonds to a texture number from the glUniform1i(texLoc, #) above
-        //
+
+        // 1. Render depth of scene to texture (from light's perspective)
+        // - Get light projection/view matrix.
+        glm::mat4 lightProjection, lightView;
+        glm::mat4 lightSpaceMatrix;
+        GLfloat near_plane = 0.1f, far_plane = 100.0f;
+        lightProjection = glm::ortho(-100.0f, 100.0f, -100.0f, 100.0f, near_plane, far_plane);
+        //lightProjection = glm::perspective(45.0f, (GLfloat)SHADOW_WIDTH / (GLfloat)SHADOW_HEIGHT, near_plane, far_plane); // Note that if you use a perspective projection matrix you'll have to change the light position as the current light position isn't enough to reflect the whole scene.
+        lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
+        lightSpaceMatrix = lightProjection * lightView;
+        // - now render scene from light's point of view
+        simpleDepthShader.Use();
+        glUniformMatrix4fv(glGetUniformLocation(simpleDepthShader.Program, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+
+        glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+        glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        //this is where render scene goes  
+
+            GLint modelShadowLoc = glGetUniformLocation(simpleDepthShader.Program, "model");          
+            // Draw the container (using container's vertex attributes)
+            glBindVertexArray(containerVAO);
+            glm::mat4 model;
+            glUniformMatrix4fv(modelShadowLoc, 1, GL_FALSE, glm::value_ptr(model));
+            //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,elementBuffer);
+            glBindVertexArray(containerVAO);
+
+            //this is for wireframeyness
+            //glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+
+            glDrawElements(GL_TRIANGLE_STRIP,degenTriangleSize,GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+
+
+        //end of rendering the scene.
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+        //SHADOW STUFF ENDS HERE
+        glViewport(0, 0, WIDTH, HEIGHT);
+
 
 
         // Use cooresponding shader when setting uniforms/drawing objects
@@ -404,6 +463,10 @@ int main()
         glUniform1i(texLoc, 3);
         glBindTexture(GL_TEXTURE_2D, rocktexture);
 
+        glActiveTexture(GL_TEXTURE4);
+        glUniform1i(glGetUniformLocation(lightingShader.Program, "shadowMap"), 4);
+        glBindTexture(GL_TEXTURE_2D, depthMap);
+
 
         // Create camera transformations
         //glm::mat4 view;
@@ -416,11 +479,12 @@ int main()
         // Pass the matrices to the shader
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(lightingShader.Program, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
 
         // Draw the container (using container's vertex attributes)
         glBindVertexArray(containerVAO);
-        glm::mat4 model;
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        glm::mat4 newModel;
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(newModel));
         //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,elementBuffer);
         glBindVertexArray(containerVAO);
 
@@ -428,11 +492,11 @@ int main()
         //glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
         glDrawElements(GL_TRIANGLE_STRIP,degenTriangleSize,GL_UNSIGNED_INT, 0);
-        //glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-        //glDrawArrays(GL_TRIANGLE_STRIP, 0, xScale-1);
         glBindVertexArray(0);
 
+
         
+        //SKYBOX STUFF
         // Draw skybox as last
         glDepthFunc(GL_LEQUAL);  // Change depth function so depth test passes when values are equal to depth buffer's content
         skyboxShader.Use();     
@@ -496,6 +560,20 @@ void do_movement()
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (keys[GLFW_KEY_D])
         camera.ProcessKeyboard(RIGHT, deltaTime);
+    if (keys[GLFW_KEY_U])
+        lightPos.x+=2.0f;
+    if (keys[GLFW_KEY_Y])
+        lightPos.x-=2.0f;
+    if (keys[GLFW_KEY_J])
+        lightPos.y+=2.0f;
+    if (keys[GLFW_KEY_H])
+        lightPos.y-=2.0f;
+    if (keys[GLFW_KEY_M])
+        lightPos.z+=2.0f;
+    if (keys[GLFW_KEY_N])
+        lightPos.z-=2.0f;
+    if (keys[GLFW_KEY_SPACE])
+        lightPos = origLightPos;
 }
 
 bool firstMouse = true;
@@ -531,8 +609,8 @@ GLuint LoadTexture (const GLchar* imageFile){
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture); // All upcoming GL_TEXTURE_2D operations now have effect on this texture object
     // Set the texture wrapping parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);   // Set texture wrapping to GL_REPEAT (usually basic wrapping method)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);   // Set texture wrapping to GL_REPEAT (usually basic wrapping method)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     // Set texture filtering parameters
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

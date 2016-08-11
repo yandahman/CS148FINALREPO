@@ -9,10 +9,12 @@ out vec3 Normal;
 out vec3 FragPos;
 out vec3 Position;
 out vec2 TextCoor;
+out vec4 FragPosLightSpace;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 lightSpaceMatrix;
 
 void main()
 {
@@ -26,4 +28,5 @@ void main()
     FragPos = vec3(model*posVec); 
     Position = position;
     TextCoor = textCoor;
+    FragPosLightSpace = lightSpaceMatrix * vec4(FragPos, 1.0);
 } 

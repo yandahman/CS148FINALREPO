@@ -10,6 +10,7 @@ in vec3 FragPos;
 in vec3 Position;
 in vec3 Normal;  
 in vec2 TextCoor;
+in vec4 FragPosLightSpace;
   
 uniform vec3 lightPos; 
 uniform vec3 viewPos;
@@ -23,6 +24,43 @@ uniform sampler2D grasstexture;
 uniform sampler2D sandtexture;
 uniform sampler2D snowtexture;
 uniform sampler2D rocktexture;
+
+uniform sampler2D shadowMap;
+
+float ShadowCalc(vec4 fragPosLightSpace){
+    float shadow = 0.0f;
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+
+    projCoords = projCoords * 0.5 + 0.5;
+
+    float closesDepth = texture(shadowMap, projCoords.xy).r;
+
+    float currentDepth = projCoords.z;
+
+    vec3 normal = normalize(Normal);
+    vec3 lightDir = normalize(lightPos - FragPos);
+
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+
+    vec2 texSize = 1.0/ textureSize(shadowMap,0);
+
+    for(int x = -1; x <= 1; ++x)
+    {
+        for(int y = -1; y <= 1; ++y)
+        {
+            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texSize).r; 
+            shadow += currentDepth - bias > pcfDepth  ? 1.0 : 0.0;        
+        }    
+    }
+
+
+    shadow /= 9.0;
+
+    if (projCoords.z > 1.0){
+        shadow = 0.0;
+    }
+    return shadow;
+}
 
 void main()
 {
@@ -77,6 +115,7 @@ void main()
         currColor = vec3(texture(sandtexture, TextCoor));
         specFactor = 0.05f;
 
+
     }else if (Position[1] > (-3.0f/10.0f) * MaxPosHeight){
         currColor = vec3(0.5f,0.5f,1.0f);
 
@@ -106,8 +145,6 @@ void main()
 
     // Specular Light 
     
-
-    
     vec3 viewVec = normalize(viewPos - FragPos); //same as lightVec but for viewing eye
     vec3 reflecVec = reflect(-lightVec,nrm); //create a vector pointing in the eye direction by 
 					     //reflecting across the normal
@@ -116,7 +153,13 @@ void main()
 								    //to Phong Model
     vec3 specLight = specFactor*reflecPwr*lightColor; //Calculate resulting light intensity/color vector
     vec3 specRes = specLight*currColor; //calculate the color/intensity of reflecting from the object
-    color = vec4(ambRes+diffRes+specRes, 1.0f); //pass the color/intensity of ambient/diffuse/specular contributions
+
+    //shadow calculations
+
+    float shadow = ShadowCalc(FragPosLightSpace);
+    shadow = min(shadow,0.75f);
+
+    color = vec4(ambRes+(diffRes+specRes)*(1.0-shadow), 1.0f); //pass the color/intensity of ambient/diffuse/specular contributions
     
 
     //color = vec4(vec3((Position[1]-maxHeight)/(maxHeight-minHeight)+1,1.f,1-Position[1]/(maxHeight)), 1.0f);
